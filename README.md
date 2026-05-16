@@ -39,6 +39,7 @@ This project uses [Groq](https://groq.com) to power the AI responses. It's free 
 
 In the root of the project folder (same place as `package.json`), create a new file called `.env.local` and paste this inside:
 GROQ_API_KEY=your_key_here
+
 Replace `your_key_here` with the key you copied from Groq. Save the file.
 
 > This file is gitignored — it will never be pushed to GitHub. Your key stays private.
