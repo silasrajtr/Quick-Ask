@@ -38,7 +38,10 @@ This project uses [Groq](https://groq.com) to power the AI responses. It's free 
 ### 3. Create the `.env.local` file
 
 In the root of the project folder (same place as `package.json`), create a new file called `.env.local` and paste this inside:
+
+```bash
 GROQ_API_KEY=your_key_here
+```
 
 Replace `your_key_here` with the key you copied from Groq. Save the file.
 
