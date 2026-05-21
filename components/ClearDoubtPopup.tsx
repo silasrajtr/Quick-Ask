@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { X, Send, MessageCircleQuestion } from "lucide-react";
+import { X, Send, MessageCircleQuestion, GripHorizontal } from "lucide-react";
 import { MessageRenderer } from "./MessageRenderer";
 import type { Message, DoubtSession } from "@/lib/types";
 
@@ -16,6 +16,22 @@ const POPUP_WIDTH = 360;
 const POPUP_HEIGHT = 420;
 const MARGIN = 12;
 
+function getInitialPosition(session: DoubtSession) {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  let x = session.anchorX + MARGIN;
+  let y = session.anchorY;
+
+  if (x + POPUP_WIDTH > vw - MARGIN) x = session.anchorX - POPUP_WIDTH - MARGIN;
+  if (y + POPUP_HEIGHT > vh - MARGIN) y = vh - POPUP_HEIGHT - MARGIN;
+
+  x = Math.max(MARGIN, x);
+  y = Math.max(MARGIN, y);
+
+  return { x, y };
+}
+
 export function ClearDoubtPopup({
   session,
   conversationContext,
@@ -29,44 +45,115 @@ export function ClearDoubtPopup({
   );
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
+
+  // Position state — actual rendered position
+  const [pos, setPos] = useState(() => getInitialPosition(session));
+
+  // Drag state stored in refs to avoid re-renders during drag
+  const isDragging = useRef(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
+
+  // Target position that the mouse is pulling toward (lerp target)
+  const targetPos = useRef(pos);
+
+  // Animation frame ref
+  const rafRef = useRef<number | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  const getPosition = () => {
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-
-    let x = session.anchorX + MARGIN;
-    let y = session.anchorY;
-
-    if (x + POPUP_WIDTH > vw - MARGIN) {
-      x = session.anchorX - POPUP_WIDTH - MARGIN;
-    }
-    if (y + POPUP_HEIGHT > vh - MARGIN) {
-      y = vh - POPUP_HEIGHT - MARGIN;
-    }
-
-    x = Math.max(MARGIN, x);
-    y = Math.max(MARGIN, y);
-
-    return { x, y };
-  };
-
-  const pos = getPosition();
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [session.messages, streamingContent]);
 
   useEffect(() => {
-    // Just focus the input, no auto-send
     setTimeout(() => {
       inputRef.current?.focus();
-      // Move cursor to end of pre-filled text
       const len = inputRef.current?.value.length ?? 0;
       inputRef.current?.setSelectionRange(len, len);
     }, 50);
   }, []);
+
+  // Lerp animation loop — runs while dragging
+  const startLerpLoop = useCallback(() => {
+    const LERP_FACTOR = 0.1; // lower = more lag, higher = snappier (0.1 feels weighted)
+
+    const tick = () => {
+      setPos((current) => {
+        const dx = targetPos.current.x - current.x;
+        const dy = targetPos.current.y - current.y;
+
+        // Stop animating when close enough
+        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+          return targetPos.current;
+        }
+
+        return {
+          x: current.x + dx * LERP_FACTOR,
+          y: current.y + dy * LERP_FACTOR,
+        };
+      });
+
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  const stopLerpLoop = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+  }, []);
+
+  // Mouse event handlers
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      isDragging.current = true;
+      dragOffset.current = {
+        x: e.clientX - pos.x,
+        y: e.clientY - pos.y,
+      };
+      startLerpLoop();
+    },
+    [pos, startLerpLoop]
+  );
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging.current) return;
+
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+
+      const rawX = e.clientX - dragOffset.current.x;
+      const rawY = e.clientY - dragOffset.current.y;
+
+      // Clamp inside viewport
+      targetPos.current = {
+        x: Math.max(MARGIN, Math.min(rawX, vw - POPUP_WIDTH - MARGIN)),
+        y: Math.max(MARGIN, Math.min(rawY, vh - POPUP_HEIGHT - MARGIN)),
+      };
+    };
+
+    const handleMouseUp = () => {
+      if (!isDragging.current) return;
+      isDragging.current = false;
+      // Let lerp finish settling, then stop the loop
+      setTimeout(() => stopLerpLoop(), 400);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      stopLerpLoop();
+    };
+  }, [stopLerpLoop]);
 
   const sendToApi = useCallback(
     async (messages: Message[]) => {
@@ -143,22 +230,32 @@ export function ClearDoubtPopup({
   return (
     <div
       className="fixed z-50 animate-popup-in"
-      style={{ left: pos.x, top: pos.y, width: POPUP_WIDTH }}
+      style={{
+        left: pos.x,
+        top: pos.y,
+        width: POPUP_WIDTH,
+        willChange: "transform",
+      }}
     >
       <div
         className="flex flex-col rounded-xl border border-border bg-background shadow-2xl overflow-hidden"
         style={{ height: POPUP_HEIGHT }}
       >
-        {/* Header */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/50 shrink-0">
-          <MessageCircleQuestion className="w-4 h-4 text-amber-500" />
+        {/* Header — drag handle */}
+        <div
+          onMouseDown={handleMouseDown}
+          className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/50 shrink-0 cursor-grab active:cursor-grabbing select-none"
+        >
+          <MessageCircleQuestion className="w-4 h-4 text-amber-500 shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium text-foreground">Clear Doubt</p>
             <p className="text-xs text-muted-foreground truncate">
               &ldquo;{session.selectedText}&rdquo;
             </p>
           </div>
+          <GripHorizontal className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
           <button
+            onMouseDown={(e) => e.stopPropagation()}
             onClick={onClose}
             className="p-1 rounded-md hover:bg-accent transition-colors shrink-0"
           >
@@ -182,9 +279,7 @@ export function ClearDoubtPopup({
           {session.messages.map((msg, i) => (
             <div
               key={i}
-              className={`flex ${
-                msg.role === "user" ? "justify-end" : "justify-start"
-              }`}
+              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
             >
               {msg.role === "user" ? (
                 <div className="max-w-[85%] rounded-lg bg-primary text-primary-foreground px-3 py-2 text-sm">
@@ -198,7 +293,6 @@ export function ClearDoubtPopup({
             </div>
           ))}
 
-          {/* Streaming response */}
           {isStreaming && (
             <div className="flex justify-start">
               <div className="max-w-[95%]">
