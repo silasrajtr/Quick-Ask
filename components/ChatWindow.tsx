@@ -72,56 +72,62 @@ function AssistantMessage({
   doubtSessions: DoubtSession[];
   onOpenSession: (session: DoubtSession) => void;
 }) {
-  const renderWithMarks = () => {
-    if (doubtSessions.length === 0) {
-      return <MessageRenderer content={content} isStreaming={isStreaming} />;
-    }
+  const resolvedSessions = doubtSessions.filter(
+    (s) => s.messages.some((m) => m.role === "assistant")
+  );
 
-    const sessions = [...doubtSessions].sort(
-      (a, b) => b.selectedText.length - a.selectedText.length
-    );
+  // Always render markdown fully — marks are applied via a wrapper ref after render
+  const containerRef = useRef<HTMLDivElement>(null);
 
-    const escaped = sessions.map((s) =>
-      s.selectedText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    );
+  useEffect(() => {
+    if (!containerRef.current || resolvedSessions.length === 0) return;
 
-    if (escaped.length === 0) {
-      return <MessageRenderer content={content} isStreaming={isStreaming} />;
-    }
+    const container = containerRef.current;
 
-    const regex = new RegExp(`(${escaped.join("|")})`, "g");
-    const parts = content.split(regex);
+    // Walk all text nodes inside the rendered markdown
+    const walk = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent ?? "";
 
-    return (
-      <div className={`prose-chat ${isStreaming ? "streaming-cursor" : ""}`}>
-        {parts.map((part, i) => {
-          const matchedSession = sessions.find((s) => s.selectedText === part);
-          if (matchedSession) {
-            return (
-              <mark
-                key={i}
-                className="doubt-marked not-prose"
-                onClick={() => onOpenSession(matchedSession)}
-                title="Click to reopen doubt"
-              >
-                {part}
-              </mark>
-            );
-          }
-          return (
-            <span key={i} className="contents">
-              <MessageRenderer
-                content={part}
-                isStreaming={isStreaming && i === parts.length - 1}
-              />
-            </span>
-          );
-        })}
-      </div>
-    );
-  };
+        for (const session of resolvedSessions) {
+          const idx = text.indexOf(session.selectedText);
+          if (idx === -1) continue;
 
-  return <>{renderWithMarks()}</>;
+          // Split the text node around the matched term
+          const before = text.slice(0, idx);
+          const match = text.slice(idx, idx + session.selectedText.length);
+          const after = text.slice(idx + session.selectedText.length);
+
+          const mark = document.createElement("mark");
+          mark.className = "doubt-marked";
+          mark.textContent = match;
+          mark.title = "Click to reopen doubt";
+          mark.addEventListener("click", () => onOpenSession(session));
+
+          const parent = node.parentNode;
+          if (!parent) continue;
+
+          if (before) parent.insertBefore(document.createTextNode(before), node);
+          parent.insertBefore(mark, node);
+          if (after) parent.insertBefore(document.createTextNode(after), node);
+          parent.removeChild(node);
+          break;
+        }
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        // Don't walk into already-marked elements
+        if ((node as Element).classList.contains("doubt-marked")) return;
+        Array.from(node.childNodes).forEach(walk);
+      }
+    };
+
+    Array.from(container.childNodes).forEach(walk);
+  }, [resolvedSessions, onOpenSession]);
+
+  return (
+    <div ref={containerRef}>
+      <MessageRenderer content={content} isStreaming={isStreaming} />
+    </div>
+  );
 }
 
 export function ChatWindow() {
