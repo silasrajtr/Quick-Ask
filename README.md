@@ -4,6 +4,10 @@ A smarter chat interface that lets you resolve doubts **inline** — without der
 
 While chatting, if you come across a term or phrase you don't understand, simply select it with your mouse. A small **💡 Clear Doubt** button will appear. Click it, and a focused mini chat popup opens right next to the selected text — already knowing the context of your main conversation. Once your doubt is cleared, close the popup and continue exactly where you left off.
 
+<img width="1138" height="640" alt="to compress" src="https://github.com/user-attachments/assets/4881fa0a-fdcf-4f45-a7ef-15bf3db1ae8b" />
+
+
+
 To understand the full idea and mechanism behind this project, visit this tutorial:
 [https://code2tutorial.com/tutorial/9b4b6b49-a9ec-4694-bb4d-0197c20a64cd/index.md](https://code2tutorial.com/tutorial/9b4b6b49-a9ec-4694-bb4d-0197c20a64cd/index.md)
 
